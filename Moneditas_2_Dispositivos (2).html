@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Moneditas 🪙</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#fff5fa;font-family:system-ui,Arial;color:#342d36}
+.app{max-width:520px;margin:auto;min-height:100vh}.hero{padding:25px 20px;background:linear-gradient(135deg,#ff8db8,#8979ff);color:#fff;border-radius:0 0 28px 28px}
+.card{background:#fff;margin:14px 16px;padding:18px;border-radius:20px;box-shadow:0 4px 18px #00000010}
+h1{margin:0 0 4px}.muted{color:#777;font-size:14px}.code{font-size:28px;font-weight:800;color:#7657ee;letter-spacing:2px}
+.balance{font-size:40px;font-weight:900}.row{display:flex;gap:9px}.row>*{flex:1}
+input{width:100%;padding:13px;border:1px solid #ddd;border-radius:12px;margin:5px 0 10px;font-size:16px}
+button{width:100%;border:0;border-radius:12px;padding:13px;background:#7657ee;color:#fff;font-size:16px;font-weight:800;margin-top:5px}
+.secondary{background:#ff8db8}.ok{background:#eafff0;color:#176a38;padding:10px;border-radius:12px;margin-top:10px}.err{color:#b52b43}
+.hidden{display:none}.shop{display:grid;grid-template-columns:1fr 1fr;gap:10px}.prod{border:1px solid #eee;border-radius:15px;padding:12px}.emoji{font-size:35px}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="hero"><h1>🪙 Moneditas</h1><div>Tiendita de juego · dinero 100% ficticio</div></div>
+
+<div class="card" id="connect">
+<h2>🔗 Conectar jugadores</h2>
+<p class="muted">Una persona crea la partida y comparte el código con la otra.</p>
+<input id="name" placeholder="Tu nombre (ej. Yasmin)">
+<button onclick="createGame()">Crear partida</button>
+<hr>
+<input id="gameId" placeholder="Código de partida">
+<button class="secondary" onclick="joinGame()">Unirme a una partida</button>
+<p id="status" class="muted">Sin conexión.</p>
+</div>
+
+<div id="game" class="hidden">
+<div class="card">
+<div class="muted">Jugador</div><h2 id="playerName">Jugador</h2>
+<div class="muted">Mi código</div><div class="code" id="myCode"></div>
+<div class="muted">Saldo</div><div class="balance"><span id="balance">100</span> 🪙</div>
+</div>
+
+<div class="card">
+<h3>📲 Enviar moneditas</h3>
+<input id="toCode" placeholder="Código del otro jugador">
+<input id="amount" type="number" min="1" placeholder="Cantidad de moneditas">
+<button onclick="transfer()">Enviar 🪙</button>
+<p id="message"></p>
+</div>
+
+<div class="card">
+<h3>🛍️ Tiendita</h3>
+<div class="shop">
+<div class="prod"><div class="emoji">🍭</div><b>Caramelo</b><br>5 🪙<button onclick="buy(5,'Caramelo')">Comprar</button></div>
+<div class="prod"><div class="emoji">🍦</div><b>Helado</b><br>8 🪙<button onclick="buy(8,'Helado')">Comprar</button></div>
+<div class="prod"><div class="emoji">🧸</div><b>Juguete</b><br>20 🪙<button onclick="buy(20,'Juguete')">Comprar</button></div>
+<div class="prod"><div class="emoji">⭐</div><b>Sticker</b><br>3 🪙<button onclick="buy(3,'Sticker')">Comprar</button></div>
+</div></div>
+</div>
+</div>
+
+<script>
+let peer=null,conn=null,isHost=false,myCode='',game={players:{}},name='';
+const $=id=>document.getElementById(id);
+function randomCode(){return String(Math.floor(10+Math.random()*90))}
+function setStatus(t,ok=false){$('status').innerHTML=ok?'<span class="ok">'+t+'</span>':t}
+function createGame(){
+ name=$('name').value.trim()||'Jugador';
+ isHost=true; myCode=randomCode();
+ peer=new Peer('moneditas-'+Date.now()+'-'+Math.random().toString(36).slice(2,7));
+ peer.on('open',id=>{
+   $('gameId').value=id; setStatus('Partida creada. Comparte este código con tu hermana: <b>'+id+'</b>',true);
+   game={players:{}}; game.players[myCode]={name,balance:100}; showGame();
+   peer.on('connection',c=>{conn=c;setupConnection();});
+ });
+ peer.on('error',e=>setStatus('No se pudo crear la partida. Reintenta.'));
+}
+function joinGame(){
+ name=$('name').value.trim()||'Jugador';
+ const id=$('gameId').value.trim(); if(!id)return setStatus('Escribe el código de partida.');
+ isHost=false; myCode=randomCode(); peer=new Peer();
+ peer.on('open',()=>{conn=peer.connect(id);setupConnection();});
+ peer.on('error',e=>setStatus('No se pudo conectar. Comprueba el código y vuelve a intentar.'));
+}
+function setupConnection(){
+ conn.on('open',()=>{
+  conn.send({type:'join',code:myCode,name});
+  setStatus('Conectado.',true); if(!isHost) $('connect').classList.add('hidden');
+  showGame();
+ });
+ conn.on('data',msg=>{
+   if(msg.type==='join' && isHost){
+     game.players[msg.code]={name:msg.name,balance:100};
+     conn.send({type:'state',game}); render();
+   } else if(msg.type==='state'){game=msg.game;render();}
+   else if(msg.type==='notice') $('message').innerHTML='<span class="ok">'+msg.text+'</span>';
+ });
+ conn.on('close',()=>{$('message').innerHTML='<span class="err">El otro jugador se desconectó.</span>';});
+}
+function showGame(){$('game').classList.remove('hidden');$('playerName').textContent=name;$('myCode').textContent=myCode;render()}
+function render(){
+ if(!game.players[myCode])game.players[myCode]={name,balance:100};
+ $('balance').textContent=game.players[myCode].balance;
+ $('myCode').textContent=myCode;
+}
+function sync(){if(conn&&conn.open)conn.send({type:'state',game});render()}
+function transfer(){
+ const to=$('toCode').value.trim(),a=Number($('amount').value);
+ if(!game.players[to])return alert('No existe ese código en esta partida.');
+ if(!a||a<1)return alert('Escribe una cantidad válida.');
+ if(game.players[myCode].balance<a)return alert('No tienes suficientes moneditas.');
+ game.players[myCode].balance-=a;game.players[to].balance+=a;sync();
+ if(conn&&conn.open)conn.send({type:'notice',text:'🪙 Recibiste '+a+' moneditas de '+name+' ('+myCode+').'});
+ $('message').innerHTML='<span class="ok">🪙 Enviaste '+a+' moneditas al código '+to+'.</span>';
+ $('amount').value='';
+}
+function buy(price,item){
+ if(game.players[myCode].balance<price)return alert('No tienes suficientes moneditas.');
+ game.players[myCode].balance-=price;sync();
+ $('message').innerHTML='<span class="ok">Compraste '+item+' por '+price+' 🪙.</span>';
+}
+</script>
+</body>
+</html>
